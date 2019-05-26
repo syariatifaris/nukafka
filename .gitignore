@@ -1,0 +1,9 @@
+#IDE 
+.idea/*
+.vscode/*
+
+#Mac
+.DS_STORE
+
+#vendor
+vendor/*
