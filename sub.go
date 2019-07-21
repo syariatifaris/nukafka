@@ -105,8 +105,7 @@ func (s *SubClient) runCtx(ctx context.Context) error {
 			value := m.Value
 			msg := Message{pclient: s.pclt, Value: value, Topic: m.Topic}
 			s.fcount.flightc++
-			go s.runFuncCtx(ctx, false, msg)
-			s.rdr.CommitMessages(ctx, m)
+			go s.runFuncCtx(ctx, false, msg, &m)
 		}
 	}
 }
@@ -137,7 +136,9 @@ func (s *SubClient) runRetCtx(ctx context.Context) error {
 			u, err := time.Parse(time.RFC3339, pm.ProcessAfter)
 			if err != nil {
 				log.Println("error parsing pending message:", err.Error())
-				s.rdr.CommitMessages(ctx, m)
+				if err := s.rdr.CommitMessages(ctx, m); err != nil{
+					log.Println("unable to commit retry message:", err.Error())
+				}
 				continue
 			}
 			if !time.Now().After(u) {
@@ -150,7 +151,9 @@ func (s *SubClient) runRetCtx(ctx context.Context) error {
 						sent = true
 					}
 				}(s.pclt, pm)
-				s.rdr.CommitMessages(ctx, m)
+				if err := s.rdr.CommitMessages(ctx, m); err != nil{
+					log.Println("unable to commit retry message:", err.Error())
+				}
 				continue
 			}
 			msg := Message{pclient: s.pclt, Value: value, Topic: m.Topic}
@@ -158,8 +161,7 @@ func (s *SubClient) runRetCtx(ctx context.Context) error {
 			msg.Value = value
 			msg.IsRetryMsg = true
 			msg.RetryAttempt = pm.ProcessRetryAttempt + 1
-			go s.runFuncCtx(ctx, true, msg)
-			s.rerdr.CommitMessages(ctx, m)
+			go s.runFuncCtx(ctx, true, msg, &m)
 		}
 	}
 	return nil
@@ -188,11 +190,14 @@ func (s *SubClient) Stop() {
 	s.rerdr.Close()
 }
 
-func (s *SubClient) runFuncCtx(ctx context.Context, retry bool, m Message) {
+func (s *SubClient) runFuncCtx(ctx context.Context, retry bool, m Message, kmsg *kafka.Message) {
 	if !retry {
 		defer func() {
 			s.fcount.flightc--
 		}()
 	}
 	s.cf(ctx, m)
+	if err := s.rerdr.CommitMessages(ctx, *kmsg); err != nil{
+		log.Println("unable to commit message", err.Error())
+	}
 }
